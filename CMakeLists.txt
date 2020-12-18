@@ -9,11 +9,14 @@ set(CMAKE_CXX_STANDARD 14)
 include_directories(
     src/
     inc/
+    /usr/include/
 )
 
 set(
     SRC_FILES
+    src/ast.cpp
     src/json_parser.cpp
+    src/parser.cpp
 )
 
 add_library(
@@ -28,4 +31,5 @@ add_executable(
 target_link_libraries(
     json_parser_exec
     json_parser
+    pthread
 )
