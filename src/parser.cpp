@@ -26,6 +26,10 @@ std::string json_parser::token_type_to_string(TokenTypes type) {
         return "Close Bracket";
     case TokenTypes::Comma:
         return "Comma";
+    case TokenTypes::LineComment:
+        return "Line Comment";
+    case TokenTypes::BlockComment:
+        return "Block Comment";
     case TokenTypes::EOFToken:
         return "EOF Token";
     case TokenTypes::WhiteSpace:
@@ -66,9 +70,9 @@ char json_parser::Parser::next_chr() {
     if (eof())
         return '\0';
     char c = m_str[m_pos];
-    if (c == '\n') {
+    if (c == '\n' || c == '\r') {
         m_row++;
-        m_col = 0;
+        m_col = 1;
     }
     return c;
 }
@@ -84,34 +88,48 @@ json_parser::Token *json_parser::Parser::next_token() {
     return m_tokens[std::min(++m_token_pos, m_tokens.size()-1)];
 }
 
-json_parser::Token *json_parser::Parser::match_token(TokenTypes type) {
+json_parser::Token *json_parser::Parser::match_token(TokenTypes type, bool required) {
     Token *current = current_token();
     if (current->m_type == type) {
         next_token();
         return current;
     }
+
+    if (required) {
+        error(
+            "Expected token: " +
+                token_type_to_string(type) +
+            "\nActual token: " +
+                token_type_to_string(current->m_type),
+            current->m_row,
+            current->m_col
+        );
+    }
+
     return nullptr;
 }
 
 json_parser::JsonArray *json_parser::Parser::parse_array() {
-    JsonArray *result = new JsonArray;
+    Token *token = match_token(TokenTypes::OpenBracket, true);
 
-    match_token(TokenTypes::OpenBracket);
-    
+    JsonArray *result = new JsonArray(token->m_pos);
+    add_comments(result);
+
     while (current_token()->m_type != TokenTypes::CloseBracket) {
         result->add_child(parse_object());
         match_token(TokenTypes::Comma);
     }
 
-    match_token(TokenTypes::CloseBracket);
+    match_token(TokenTypes::CloseBracket, true);
 
     return result;
 }
 json_parser::JsonObj *json_parser::Parser::parse_object() {
-    JsonObj *ret = new JsonObj;
-    
-    Token *token = match_token(TokenTypes::OpenBrace);
+    Token *token = match_token(TokenTypes::OpenBrace, true);
 
+    JsonObj *ret = new JsonObj(token->m_pos);
+    add_comments(ret);
+    
     while (token->m_type != TokenTypes::EOFToken &&
            token->m_type != TokenTypes::CloseBrace) {
         JsonString *key = parse_string();
@@ -148,24 +166,46 @@ json_parser::JsonObj *json_parser::Parser::parse_object() {
         token = current_token();
     }
 
-    match_token(TokenTypes::CloseBrace);
+    match_token(TokenTypes::CloseBrace, true);
 
     return ret;
 }
 json_parser::JsonString *json_parser::Parser::parse_string() {
-    return new JsonString(match_token(TokenTypes::String)->m_value);
+    Token *token = match_token(TokenTypes::String, true);
+    JsonString *result = new JsonString(token->m_pos, token->m_value);
+    add_comments(result);
+    return result;
 }
 json_parser::JsonBool *json_parser::Parser::parse_bool() {
-    Token *boolToken = match_token(TokenTypes::Bool);
-    return new JsonBool(boolToken->m_value == "true");
+    Token *boolToken = match_token(TokenTypes::Bool, true);
+    JsonBool *result = new JsonBool(boolToken->m_pos, boolToken->m_value == "true");
+    add_comments(result);
+    return result;
 }
 json_parser::JsonNull *json_parser::Parser::parse_null() {
-    match_token(TokenTypes::Null);
-    return new JsonNull;
+    Token *token = match_token(TokenTypes::Null, true);
+    JsonNull *result = new JsonNull(token->m_pos);
+    add_comments(result);
+    return result;
 }
 json_parser::JsonNumber *json_parser::Parser::parse_number() {
-    Token *numberToken = match_token(TokenTypes::Number);
-    return new JsonNumber(std::stod(numberToken->m_value));
+    Token *numberToken = match_token(TokenTypes::Number, true);
+    JsonNumber *result = new JsonNumber(numberToken->m_pos, std::stod(numberToken->m_value));
+    add_comments(result);
+    return result;
+}
+
+void json_parser::Parser::add_comments(Object *ptr) {
+
+}
+void json_parser::Parser::error(std::string msg, size_t line, size_t col) {
+    throw std::runtime_error(
+        "Fatal error at: line " +
+            std::to_string(line) +
+        ", col " +
+            std::to_string(col) +
+        ":\n" + msg
+    );
 }
 
 json_parser::Token *json_parser::Parser::get_next_token() {
@@ -175,18 +215,54 @@ json_parser::Token *json_parser::Parser::get_next_token() {
     char startChr = current_chr();
 
     // misc: eof token
-    if (m_pos >= m_str.length()) {
+    if (eof()) {
         next_chr();
         return new Token(TokenTypes::EOFToken, current_chr(), start, startRow, startCol);
     }
 
     // misc: whitespace token
     if (isspace(current_chr())) {
-        while (isspace(current_chr()))
+        while (!eof() && isspace(current_chr()))
             next_chr();
         size_t len = m_pos - start;
         std::string whitespace = m_str.substr(start, m_pos - start);
         return new Token(TokenTypes::WhiteSpace, whitespace, start, startRow, startCol);
+    }
+
+    // comments
+    if (current_chr() == '/') {
+        // comments: line comment
+        next_chr();
+        if (current_chr() == '/') {
+            next_chr();
+            while (!eof() && current_chr() != '\n' && current_chr() != '\r')
+                next_chr();
+            // dont include the // slashes
+            std::string comment = m_str.substr(start+2, m_pos-start-2);
+            return new Token(TokenTypes::LineComment, comment, start, startRow, startCol);
+        }
+        
+        // comments: block comment
+        else if (current_chr() == '*') {
+            bool hasClosingTag = false;
+
+            next_chr();
+            while (!eof()) {
+                // if there is space for closing */
+                if (m_pos+1 < m_str.length() &&
+                    m_str.substr(m_pos, 2) == "*/") {
+                    next_chr();
+                    next_chr();
+                    hasClosingTag = true;
+                    break;
+                }
+                next_chr();
+            }
+            
+            // dont include the // slashes
+            std::string comment = m_str.substr(start+2, m_pos - hasClosingTag*2 - start - 2);
+            return new Token(TokenTypes::LineComment, comment, start, startRow, startCol);
+        }
     }
     
     // objects: open & close braces and colons
@@ -234,9 +310,9 @@ json_parser::Token *json_parser::Parser::get_next_token() {
                 case 'r': str += '\r'; break;
                 case 't': str += '\t'; break;
                 case 'u':
-                    throw std::runtime_error("Unicode is not supported");
+                    error("Unicode is not supported", m_row, m_col);
                 default:
-                    throw std::runtime_error("Unrecognised escape sequence");
+                    error("Unrecognised escape sequence", m_row, m_col);
                 }
                 escape = false;
             } else if (current_chr() == '\\') {
@@ -251,13 +327,12 @@ json_parser::Token *json_parser::Parser::get_next_token() {
 
         // reached end of string
         if (current_chr() == '"') {
-            m_pos++;
-            m_col++;
+            next_chr();
             return new Token(TokenTypes::String, str, start, startRow, startCol);
         }
 
         // no closing quote
-        throw std::runtime_error("No closing quote for string");
+        error("No closing quote for string", m_row, m_col);
     }
     
     // types: number
@@ -266,7 +341,7 @@ json_parser::Token *json_parser::Parser::get_next_token() {
         next_chr();
 
         // integer
-        while (isdigit(current_chr()))
+        while (!eof() && isdigit(current_chr()))
             next_chr();
 
         // fraction
@@ -275,10 +350,10 @@ json_parser::Token *json_parser::Parser::get_next_token() {
 
             // decimal places
             if (isdigit(current_chr())) {
-                while (isdigit(current_chr()))
+                while (!eof() && isdigit(current_chr()))
                     next_chr();
             } else {
-                throw std::runtime_error("A decimal point must be followed by digits");
+                error("A decimal point must be followed by digits", m_row, m_col);
             }
         }
 
@@ -288,10 +363,10 @@ json_parser::Token *json_parser::Parser::get_next_token() {
             if (current_chr() == '-'||current_chr()=='+')
                 next_chr();
             if (isdigit(current_chr())) {
-                while (isdigit(current_chr()))
+                while (!eof() && isdigit(current_chr()))
                     next_chr();
             } else {
-                throw std::runtime_error("Exponent must be followed by an integer");
+                error("Exponent must be followed by an integer", m_row, m_col);
             }
         }
 
@@ -327,6 +402,7 @@ json_parser::Token *json_parser::Parser::get_next_token() {
     }
 
     // misc: EOF token
+    error(std::string("Bad Token: ") + startChr, m_row, m_col);
     next_chr();
     return new Token(TokenTypes::BadToken, startChr, start, startRow, startCol);
 }
@@ -334,15 +410,20 @@ json_parser::Token *json_parser::Parser::get_next_token() {
 json_parser::Parser::Parser(const std::string &str) {
     m_str = str;
     m_pos = 0;
-    m_row = 0;
-    m_col = 0;
+    m_row = 1;
+    m_col = 1;
     m_token_pos = 0;
 
     while (1) {
         Token *token = get_next_token();
 
         if (token->m_type != TokenTypes::WhiteSpace &&
-            token->m_type != TokenTypes::BadToken) {
+            token->m_type != TokenTypes::BadToken &&
+            token->m_type != TokenTypes::BlockComment &&
+            token->m_type != TokenTypes::LineComment) {
+                if (token->m_type == TokenTypes::BlockComment ||
+                    token->m_type == TokenTypes::LineComment)
+                        m_comments.push_back(token);
                 m_tokens.push_back(token);
 
                 if (token->m_type == TokenTypes::EOFToken)

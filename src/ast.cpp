@@ -1,5 +1,7 @@
 #include "ast.hpp"
 
+#include <algorithm>
+
 /* Utils */
 std::string json_parser::obj_type_to_string(JsonTypes type) {
     switch (type) {
@@ -15,7 +17,13 @@ std::string json_parser::obj_type_to_string(JsonTypes type) {
     }
 }
 
+/* Object */
+json_parser::Object::Object(size_t pos)
+    : m_pos(pos) {}
+
 /* JsonArray */
+json_parser::JsonArray::JsonArray(size_t pos)
+    : Object(pos) {}
 json_parser::JsonArray::~JsonArray() {
     for (Object *child : m_children)
         delete child;
@@ -33,6 +41,9 @@ json_parser::JsonTypes json_parser::JsonArray::get_type() {
     return JsonTypes::JsonArray;
 }
 std::string json_parser::JsonArray::to_string(const std::string &indent) {
+    if (!m_children.size())
+        return "[]";
+    
     std::string result = "[\n";
 
     for (int i = 0; i < m_children.size(); i++) {
@@ -47,31 +58,41 @@ std::string json_parser::JsonArray::to_string(const std::string &indent) {
 }
 
 /* JsonObj */
+json_parser::JsonObj::JsonObj(size_t pos)
+    : Object(pos) {}
 json_parser::JsonObj::~JsonObj() {
-    for (std::map<std::string, Object*>::iterator it = m_values.begin(); it != m_values.end(); it++) {
+    for (auto it = m_values.begin(); it != m_values.end(); it++)
         delete it->second;
-    }
 }
 json_parser::Object *json_parser::JsonObj::operator[](const std::string &key) {
-    return m_values[key];
+    return get(key);
 }
 json_parser::Object *json_parser::JsonObj::get(const std::string &key) {
     return m_values[key];
 }
 void json_parser::JsonObj::set(const std::string &key, Object *val) {
     m_values[key] = val;
+    if (std::find(m_keys.begin(), m_keys.end(), key) == m_keys.end())
+        m_keys.push_back(key);
 }
 json_parser::JsonTypes json_parser::JsonObj::get_type() {
     return JsonTypes::JsonObj;
 }
 std::string json_parser::JsonObj::to_string(const std::string &indent) {
+    if (!m_values.size())
+        return "{}";
+
     std::string result = indent + "{\n";
 
-    for (std::map<std::string, Object*>::iterator it = m_values.begin(); it != m_values.end(); it++) {
-        result += indent + "    \""+it->first+"\": " + it->second->to_string(indent + "    ");
-        if (std::distance(it, m_values.end()) > 1)
-            result += ',';
-        result += '\n';
+    // in order of keys to maintain input order
+    for (size_t i = 0; i < m_keys.size(); i++){
+        auto it = m_values.find(m_keys[i]);
+        if (it != m_values.end()) {
+            result += indent + "    \""+it->first+"\": " + it->second->to_string(indent + "    ");
+            if (i + 1 < m_keys.size())
+                result += ',';
+            result += '\n';
+        }
     }
 
     result += indent + '}';
@@ -79,8 +100,8 @@ std::string json_parser::JsonObj::to_string(const std::string &indent) {
 }
 
 /* JsonString */
-json_parser::JsonString::JsonString(const std::string &val)
-    : m_val(val) {}
+json_parser::JsonString::JsonString(size_t pos, const std::string &val)
+    : Object(pos), m_val(val) {}
 json_parser::JsonTypes json_parser::JsonString::get_type() {
     return JsonTypes::JsonString;
 }
@@ -89,8 +110,8 @@ std::string json_parser::JsonString::to_string(const std::string &indent) {
 }
 
 /* JsonNumber */
-json_parser::JsonNumber::JsonNumber(double val)
-    : m_val(val) {}
+json_parser::JsonNumber::JsonNumber(size_t pos, double val)
+    : Object(pos), m_val(val) {}
 json_parser::JsonTypes json_parser::JsonNumber::get_type() {
     return JsonTypes::JsonNumber;
 }
@@ -99,8 +120,8 @@ std::string json_parser::JsonNumber::to_string(const std::string &indent) {
 }
 
 /* JsonBool */
-json_parser::JsonBool::JsonBool(bool val)
-    : m_val(val) {}
+json_parser::JsonBool::JsonBool(size_t pos, bool val)
+    : Object(pos), m_val(val) {}
 json_parser::JsonTypes json_parser::JsonBool::get_type() {
     return JsonTypes::JsonBool;
 }
@@ -109,9 +130,31 @@ std::string json_parser::JsonBool::to_string(const std::string &indent) {
 }
 
 /* JsonNull */
+json_parser::JsonNull::JsonNull(size_t pos)
+    : Object(pos) {}
 json_parser::JsonTypes json_parser::JsonNull::get_type() {
     return JsonTypes::JsonNull;
 }
 std::string json_parser::JsonNull::to_string(const std::string &indent) {
     return "null";
+}
+
+/* JsonLineComment */
+json_parser::JsonLineComment::JsonLineComment(size_t pos, const std::string &comment)
+    : Object(pos), m_val(comment) {}
+json_parser::JsonTypes json_parser::JsonLineComment::get_type() {
+    return JsonTypes::JsonLineComment;
+}
+std::string json_parser::JsonLineComment::to_string(const std::string &indent) {
+    return "\\\\" + m_val + '\n';
+}
+
+/* JsonBlockComment */
+json_parser::JsonBlockComment::JsonBlockComment(size_t pos, const std::string &comment)
+    : Object(pos), m_val(comment) {}
+json_parser::JsonTypes json_parser::JsonBlockComment::get_type() {
+    return JsonTypes::JsonBlockComment;
+}
+std::string json_parser::JsonBlockComment::to_string(const std::string &indent) {
+    return "/*" + m_val + "*/\n";
 }

@@ -23,6 +23,10 @@ enum class TokenTypes {
     CloseBracket, // ]
     Comma,        // ,
 
+    // comments
+    LineComment,  // //comment
+    BlockComment, // /* comment */
+
     // misc
     EOFToken,
     WhiteSpace,
@@ -57,10 +61,11 @@ private:
     // parser
     size_t m_token_pos;
     std::vector<Token*> m_tokens;
+    std::vector<Token*> m_comments;
     Token *current_token();
     Token *next_token();
 
-    Token *match_token(TokenTypes type);
+    Token *match_token(TokenTypes type, bool required = false);
     
     JsonArray *parse_array();
     JsonObj *parse_object();
@@ -69,6 +74,9 @@ private:
     JsonBool *parse_bool();
     JsonNull *parse_null();
     JsonNumber *parse_number();
+
+    void add_comments(Object *ptr);
+    void error(std::string msg, size_t line, size_t col);
     
 public:
     Parser(const std::string &str);

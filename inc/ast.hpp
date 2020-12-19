@@ -14,12 +14,22 @@ enum class JsonTypes {
     JsonString,
     JsonNumber,
     JsonBool,
-    JsonNull
+    JsonNull,
+
+    JsonLineComment,
+    JsonBlockComment
 };
 
 std::string obj_type_to_string(JsonTypes type);
 
+class Token;
+
 struct Object {
+    size_t m_pos;
+
+    Object(size_t pos);
+    virtual ~Object(){}
+
     virtual JsonTypes get_type() = 0;
     virtual std::string to_string(const std::string &indent) = 0;
 };
@@ -29,6 +39,7 @@ private:
     std::vector<Object*> m_children;
 
 public:
+    JsonArray(size_t pos);
     ~JsonArray();
 
     void add_child(Object *child);
@@ -43,9 +54,11 @@ public:
 
 struct JsonObj : public virtual Object {
 private:
+    std::vector<std::string> m_keys;
     std::map<std::string, Object*> m_values;
 
 public:
+    JsonObj(size_t pos);
     ~JsonObj();
 
     Object *operator[](const std::string &key);
@@ -60,7 +73,7 @@ public:
 struct JsonString : public virtual Object {
     std::string m_val;
 
-    JsonString(const std::string &val);
+    JsonString(size_t pos, const std::string &val);
 
     virtual JsonTypes get_type();
     virtual std::string to_string(const std::string &indent);
@@ -69,7 +82,7 @@ struct JsonString : public virtual Object {
 struct JsonNumber : public virtual Object {
     double m_val;
 
-    JsonNumber(double val);
+    JsonNumber(size_t pos, double val);
 
     virtual JsonTypes get_type();
     virtual std::string to_string(const std::string &indent);
@@ -78,13 +91,33 @@ struct JsonNumber : public virtual Object {
 struct JsonBool : public virtual Object {
     bool m_val;
 
-    JsonBool(bool val);
+    JsonBool(size_t pos, bool val);
 
     virtual JsonTypes get_type();
     virtual std::string to_string(const std::string &indent);
 };
 
 struct JsonNull : public virtual Object {
+    JsonNull(size_t pos);
+
+    virtual JsonTypes get_type();
+    virtual std::string to_string(const std::string &indent);
+};
+
+struct JsonLineComment : public virtual Object {
+    std::string m_val;
+
+    JsonLineComment(size_t pos, const std::string &comment);
+
+    virtual JsonTypes get_type();
+    virtual std::string to_string(const std::string &indent);
+};
+
+struct JsonBlockComment : public virtual Object {
+    std::string m_val;
+
+    JsonBlockComment(size_t pos, const std::string &comment);
+
     virtual JsonTypes get_type();
     virtual std::string to_string(const std::string &indent);
 };
