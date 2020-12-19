@@ -9,5 +9,5 @@ json_parser::JsonDoc::~JsonDoc() {
 }
 
 std::string json_parser::JsonDoc::to_string() {
-    return root->to_string("");
+    return root->to_string_comments("");
 }

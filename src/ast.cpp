@@ -20,6 +20,20 @@ std::string json_parser::obj_type_to_string(JsonTypes type) {
 /* Object */
 json_parser::Object::Object(size_t pos)
     : m_pos(pos) {}
+void json_parser::Object::add_comment(Object *comment, bool before) {
+    (before ? m_comment_before : m_comment_after).push_back(comment);
+}
+std::string json_parser::Object::to_string_comments(const std::string &indent) {
+    std::string result;
+    for (int i = 0; i < m_comment_before.size(); i++) {
+        result += m_comment_before[i]->to_string("") + indent;
+    }
+    result += to_string(indent);
+    for (int i = 0; i < m_comment_after.size(); i++) {
+        result += indent + m_comment_after[i]->to_string("");
+    }
+    return result;
+}
 
 /* JsonArray */
 json_parser::JsonArray::JsonArray(size_t pos)
@@ -47,7 +61,7 @@ std::string json_parser::JsonArray::to_string(const std::string &indent) {
     std::string result = "[\n";
 
     for (int i = 0; i < m_children.size(); i++) {
-        result += m_children[i]->to_string(indent + "    ");
+        result += indent + "    " + m_children[i]->to_string_comments(indent + "    ");
         if (i + 1 < m_children.size())
             result += ',';
         result += '\n';
@@ -61,38 +75,46 @@ std::string json_parser::JsonArray::to_string(const std::string &indent) {
 json_parser::JsonObj::JsonObj(size_t pos)
     : Object(pos) {}
 json_parser::JsonObj::~JsonObj() {
-    for (auto it = m_values.begin(); it != m_values.end(); it++)
-        delete it->second;
+    for (Object *obj : m_keys_obj)
+        delete obj;
+    for (Object *obj : m_values_obj)
+        delete obj;
 }
 json_parser::Object *json_parser::JsonObj::operator[](const std::string &key) {
     return get(key);
 }
 json_parser::Object *json_parser::JsonObj::get(const std::string &key) {
-    return m_values[key];
+    return m_values_obj[std::distance(m_keys.begin(), std::find(m_keys.begin(), m_keys.end(), key))];
 }
-void json_parser::JsonObj::set(const std::string &key, Object *val) {
-    m_values[key] = val;
-    if (std::find(m_keys.begin(), m_keys.end(), key) == m_keys.end())
-        m_keys.push_back(key);
+void json_parser::JsonObj::set(JsonString *key, Object *val) {
+    auto pos = std::find(m_keys.begin(), m_keys.end(), key->m_val);
+    if (pos == m_keys.end()) {
+        m_keys.push_back(key->m_val);
+        m_keys_obj.push_back(key);
+        m_values_obj.push_back(val);
+    } else {
+        size_t idx = std::distance(m_keys.begin(), pos);
+        m_keys_obj[idx] = key;
+        m_values_obj[idx] = val;
+    }
 }
 json_parser::JsonTypes json_parser::JsonObj::get_type() {
     return JsonTypes::JsonObj;
 }
 std::string json_parser::JsonObj::to_string(const std::string &indent) {
-    if (!m_values.size())
+    if (!m_keys.size())
         return "{}";
 
-    std::string result = indent + "{\n";
+    std::string result = "{\n";
 
     // in order of keys to maintain input order
-    for (size_t i = 0; i < m_keys.size(); i++){
-        auto it = m_values.find(m_keys[i]);
-        if (it != m_values.end()) {
-            result += indent + "    \""+it->first+"\": " + it->second->to_string(indent + "    ");
-            if (i + 1 < m_keys.size())
-                result += ',';
-            result += '\n';
-        }
+    for (size_t i = 0; i < m_keys.size(); i++) {
+        result += 
+            indent + "    " + m_keys_obj[i]->to_string_comments(indent + "    ") + ": " +
+            m_values_obj[i]->to_string_comments(indent + "    ");
+        if (i + 1 < m_keys.size())
+            result += ',';
+        result += '\n';
     }
 
     result += indent + '}';

@@ -159,7 +159,7 @@ json_parser::JsonObj *json_parser::Parser::parse_object() {
             break;
         }
 
-        ret->set(key->m_val, result);
+        ret->set(key, result);
 
         match_token(TokenTypes::Comma);
 
@@ -196,7 +196,19 @@ json_parser::JsonNumber *json_parser::Parser::parse_number() {
 }
 
 void json_parser::Parser::add_comments(Object *ptr) {
-
+    for (size_t i = 0; i < m_comments.size(); i++) {
+        if (m_comments[i]->m_pos <= ptr->m_pos) {
+            Object *comment = nullptr;
+            if (m_comments[i]->m_type == TokenTypes::BlockComment) {
+                comment = new JsonBlockComment(m_comments[i]->m_pos, m_comments[i]->m_value);
+            } else {
+                comment = new JsonLineComment(m_comments[i]->m_pos, m_comments[i]->m_value);
+            }
+            ptr->add_comment(comment, true);
+            m_comments.erase(m_comments.begin()+i);
+            i--;
+        }
+    }
 }
 void json_parser::Parser::error(std::string msg, size_t line, size_t col) {
     throw std::runtime_error(
@@ -261,7 +273,7 @@ json_parser::Token *json_parser::Parser::get_next_token() {
             
             // dont include the // slashes
             std::string comment = m_str.substr(start+2, m_pos - hasClosingTag*2 - start - 2);
-            return new Token(TokenTypes::LineComment, comment, start, startRow, startCol);
+            return new Token(TokenTypes::BlockComment, comment, start, startRow, startCol);
         }
     }
     
@@ -418,13 +430,14 @@ json_parser::Parser::Parser(const std::string &str) {
         Token *token = get_next_token();
 
         if (token->m_type != TokenTypes::WhiteSpace &&
-            token->m_type != TokenTypes::BadToken &&
-            token->m_type != TokenTypes::BlockComment &&
-            token->m_type != TokenTypes::LineComment) {
+            token->m_type != TokenTypes::BadToken) {
                 if (token->m_type == TokenTypes::BlockComment ||
-                    token->m_type == TokenTypes::LineComment)
-                        m_comments.push_back(token);
-                m_tokens.push_back(token);
+                    token->m_type == TokenTypes::LineComment) {
+
+                    m_comments.push_back(token);
+                } else {
+                    m_tokens.push_back(token);
+                }
 
                 if (token->m_type == TokenTypes::EOFToken)
                     break;
@@ -434,8 +447,23 @@ json_parser::Parser::Parser(const std::string &str) {
 json_parser::Parser::~Parser() {
     for (Token *token : m_tokens)
         delete token;
+    for (Token *token : m_comments)
+        delete token;
 }
 
 json_parser::JsonObj *json_parser::Parser::parse() {
-    return parse_object();
+    JsonObj *result = parse_object();
+
+    // add any remaining comments to the last jsonObj
+    for (Token *token : m_comments) {
+        Object *comment = nullptr;
+        if (token->m_type == TokenTypes::BlockComment) {
+            comment = new JsonBlockComment(token->m_pos, token->m_value);
+        } else {
+            comment = new JsonLineComment(token->m_pos, token->m_value);
+        }
+        result->add_comment(comment, false);
+    }
+
+    return result;
 }
