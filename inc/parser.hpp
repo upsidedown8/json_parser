@@ -59,7 +59,6 @@ private:
     std::vector<Token*> m_tokens;
     Token *current_token();
     Token *next_token();
-    Token *peek_token();
 
     Token *match_token(TokenTypes type);
     
@@ -73,6 +72,7 @@ private:
     
 public:
     Parser(const std::string &str);
+    ~Parser();
 
     JsonObj *parse();
 };

@@ -83,9 +83,6 @@ json_parser::Token *json_parser::Parser::current_token() {
 json_parser::Token *json_parser::Parser::next_token() {
     return m_tokens[std::min(++m_token_pos, m_tokens.size()-1)];
 }
-json_parser::Token *json_parser::Parser::peek_token() {
-    return m_tokens[std::min(m_token_pos+1, m_tokens.size()-1)];
-}
 
 json_parser::Token *json_parser::Parser::match_token(TokenTypes type) {
     Token *current = current_token();
@@ -93,10 +90,6 @@ json_parser::Token *json_parser::Parser::match_token(TokenTypes type) {
         next_token();
         return current;
     }
-
-    // throw new std::runtime_error(
-    //     "Unexpected token: " + token_type_to_string(current->m_type) +
-    //     " expected: " + token_type_to_string(type));
     return nullptr;
 }
 
@@ -356,6 +349,10 @@ json_parser::Parser::Parser(const std::string &str) {
                     break;
         }
     }
+}
+json_parser::Parser::~Parser() {
+    for (Token *token : m_tokens)
+        delete token;
 }
 
 json_parser::JsonObj *json_parser::Parser::parse() {
