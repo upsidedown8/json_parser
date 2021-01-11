@@ -31,5 +31,4 @@ add_executable(
 target_link_libraries(
     json_parser_exec
     json_parser
-    pthread
 )
