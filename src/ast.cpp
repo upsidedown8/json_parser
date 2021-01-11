@@ -168,7 +168,7 @@ json_parser::JsonTypes json_parser::JsonLineComment::get_type() {
     return JsonTypes::JsonLineComment;
 }
 std::string json_parser::JsonLineComment::to_string(const std::string &indent) {
-    return "\\\\" + m_val + '\n';
+    return "//" + m_val + '\n';
 }
 
 /* JsonBlockComment */
